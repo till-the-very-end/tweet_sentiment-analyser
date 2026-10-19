@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sumo — Document Summarizer</title>
+<style>
+:root{--bg:#fff;--fg:#111;--mut:#777;--line:#e5e5e5;--acc:#111;--hi:#f2f2f2;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0e0e0e;--fg:#eee;--mut:#888;--line:#262626;--acc:#eee;--hi:#1a1a1a}}
+:root[data-theme="dark"]{--bg:#0e0e0e;--fg:#eee;--mut:#888;--line:#262626;--acc:#eee;--hi:#1a1a1a}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.65 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:720px;margin:0 auto;padding:48px 20px 80px}
+h1{font-size:20px;font-weight:600;margin:0}.sub{color:var(--mut);margin:4px 0 32px}
+textarea,input[type=text],select{width:100%;background:transparent;color:inherit;border:1px solid var(--line);border-radius:8px;padding:12px;font:inherit}
+textarea{min-height:220px;resize:vertical}
+textarea:focus,input:focus,select:focus{outline:none;border-color:var(--acc)}
+.row{display:flex;gap:12px;margin:12px 0;flex-wrap:wrap;align-items:center}.row>*{flex:1;min-width:140px}
+label{color:var(--mut);font-size:13px;display:block;margin-bottom:4px}
+button{background:var(--acc);color:var(--bg);border:0;border-radius:8px;padding:11px 20px;font:inherit;cursor:pointer}
+button.g{background:transparent;color:var(--mut);padding:11px 8px}
+#out{margin-top:40px;display:none}
+.sum{font-size:17px;line-height:1.75}
+.meta{display:flex;gap:24px;flex-wrap:wrap;color:var(--mut);font-size:13px;margin:20px 0}.meta b{color:var(--fg);font-weight:500}
+.kw span{display:inline-block;border:1px solid var(--line);border-radius:99px;padding:2px 11px;margin:0 6px 6px 0;font-size:13px}
+h2{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);font-weight:500;margin:32px 0 10px}
+.s{display:flex;gap:10px;padding:6px 8px;border-radius:6px;font-size:13px;color:var(--mut)}
+.s.on{background:var(--hi);color:var(--fg)}.s i{flex:0 0 36px;height:4px;margin-top:10px;background:var(--line);position:relative}
+.s i u{position:absolute;left:0;top:0;bottom:0;background:var(--acc)}
+details{margin-top:40px;color:var(--mut);font-size:13px}summary{cursor:pointer}
+</style></head><body><main>
+<h1>Sumo</h1><p class="sub">Extractive document summarization · Information Retrieval</p>
+<textarea id="t" placeholder="Paste a document, or upload a .txt file…"></textarea>
+<div class="row">
+<div><label>Algorithm</label><select id="m"><option value="hybrid">Hybrid (TextRank + TF-IDF + LSA, MMR)</option><option value="textrank">TextRank (PageRank graph)</option><option value="tfidf">TF-IDF scoring</option><option value="lsa">LSA (SVD)</option></select></div>
+<div><label>Length: <span id="pv">25</span>%</label><input id="p" type="range" min="5" max="60" value="25" style="width:100%"></div>
+</div>
+<div class="row"><input type="text" id="q" placeholder="Optional query → query-focused summary (BM25)"></div>
+<div class="row" style="justify-content:flex-start"><button id="go" style="flex:0 0 auto">Summarize</button><button class="g" id="ex" style="flex:0 0 auto">Example</button><button class="g" id="up" style="flex:0 0 auto">Upload .txt</button><input type="file" id="f" accept=".txt,text/plain" hidden></div>
+
+<section id="out">
+<div class="sum" id="sum"></div>
+<div class="meta" id="meta"></div>
+<h2>Keywords</h2><div class="kw" id="kw"></div>
+<h2>Sentence relevance</h2><div id="sc"></div>
+</section>
+
+<details><summary>How it works</summary><p>
+1 Preprocess: sentence segmentation, tokenization, stopword removal, suffix stemming. 2 Index: each sentence is a document in a TF-IDF vector space. 3 Score: TextRank runs PageRank (d=0.85) on the cosine-similarity graph; TF-IDF sums term weights with position bias; LSA applies SVD via power iteration with deflation (Steinberger–Jezek). 4 Query mode adds Okapi BM25 (k1=1.5, b=0.75). 5 Select: Maximal Marginal Relevance (λ=0.7) removes redundancy. 6 Output in original order. Computation runs on your local Flask + NumPy server (SVD via numpy.linalg).</p></details>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const esc=s=>s.replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+async function api(o){try{const r=await fetch("/api/summarize",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(o)});return r.ok?await r.json():null}catch(e){return null}}
+async function run(){
+  const text=$("t").value;if(!text.trim())return;
+  const t0=performance.now();
+  const R=await api({text,method:$("m").value,percent:+$("p").value,query:$("q").value});
+  if(!R){$("out").style.display="block";$("sum").textContent="Please provide a longer document (at least two sentences).";return}
+  const ms=(performance.now()-t0).toFixed(1),sum=R.pick.map(i=>R.S[i]).join(" ");
+  const wc=s=>(s.match(/\S+/g)||[]).length;
+  $("out").style.display="block";$("sum").textContent=sum;
+  $("meta").innerHTML=`<span><b>${wc(text)}</b> → <b>${wc(sum)}</b> words</span><span>compression <b>${(100-wc(sum)/wc(text)*100).toFixed(0)}%</b></span><span><b>${R.pick.length}</b> of ${R.n} sentences</span><span><b>${ms}</b> ms</span>`;
+  $("kw").innerHTML=R.kw.map(w=>`<span>${esc(w)}</span>`).join("");
+  $("sc").innerHTML=R.S.map((s,i)=>`<div class="s ${R.pick.includes(i)?"on":""}"><i><u style="width:${(R.sc[i]*100).toFixed(0)}%"></u></i><span>${esc(s)}</span></div>`).join("");
+  $("out").scrollIntoView({behavior:"smooth"});
+}
+$("go").onclick=run;
+$("p").oninput=e=>$("pv").textContent=e.target.value;
+$("up").onclick=()=>$("f").click();
+$("f").onchange=e=>{const f=e.target.files[0];if(f)f.text().then(x=>{$("t").value=x})};
+$("ex").onclick=()=>{$("t").value=`Information retrieval is the process of obtaining relevant information resources from a large collection in response to a query. Early systems relied on Boolean matching, which returned documents that exactly satisfied a logical expression. The vector space model later represented documents and queries as weighted vectors, where term weights are computed with TF-IDF. Cosine similarity between vectors then ranks documents by relevance. Probabilistic models such as Okapi BM25 improved ranking by modelling term frequency saturation and document length normalization. Modern search engines combine these lexical signals with link analysis such as PageRank, which scores pages by the structure of the web graph. Text summarization is a closely related task that condenses a document while preserving its key information. Extractive summarizers select the most important sentences, whereas abstractive summarizers generate new text with neural language models. TextRank adapts PageRank to sentences, treating similarity between sentences as edges in a graph. Latent semantic analysis applies singular value decomposition to uncover hidden topics shared across sentences. Maximal marginal relevance then reduces redundancy by balancing relevance against similarity to sentences already chosen. Evaluation is usually done with ROUGE, which measures n-gram overlap between a system summary and human references. Neural retrievers now embed queries and documents into dense vectors, enabling semantic search beyond exact keyword overlap.`};
+</script></body></html>
